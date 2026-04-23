@@ -1,6 +1,8 @@
 // Name : W.A.C.D.Wijesinghe / IIT ID : 20241938 / UoW ID : w2151956
 package com.smartcampus.model;
 
+import com.fasterxml.jackson.annotation.JsonAutoDetect;
+
 /**
  * Immutable JSON response body returned by the global exception mapper
  * whenever the API needs to signal an error to the client.
@@ -18,6 +20,7 @@ package com.smartcampus.model;
  * The {@code timestamp} field is set automatically to the epoch-millisecond
  * value of the moment the error response is constructed.
  */
+@JsonAutoDetect(fieldVisibility = JsonAutoDetect.Visibility.ANY)
 public class ErrorResponse {
 
     private final int    status;

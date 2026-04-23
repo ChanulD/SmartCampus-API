@@ -83,6 +83,16 @@ public class SensorResource {
         if (sensor.getStatus() == null || sensor.getStatus().isBlank()) {
             sensor.setStatus("ACTIVE");
         }
+        // Validate status is one of the three permitted values
+        String status = sensor.getStatus().toUpperCase();
+        if (!status.equals("ACTIVE") && !status.equals("MAINTENANCE") && !status.equals("OFFLINE")) {
+            return Response.status(Response.Status.BAD_REQUEST)
+                    .entity(new ErrorResponse(400, "Bad Request",
+                            "Invalid sensor status '" + sensor.getStatus()
+                            + "'. Valid values are: ACTIVE, MAINTENANCE, OFFLINE."))
+                    .build();
+        }
+        sensor.setStatus(status); // normalise to upper-case before saving
 
         store.saveSensor(sensor);
 
