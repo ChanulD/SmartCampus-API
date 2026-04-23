@@ -1,55 +1,42 @@
 package com.smartcampus.exception;
 
+import com.smartcampus.model.ErrorResponse;
+
 import javax.ws.rs.core.MediaType;
 import javax.ws.rs.core.Response;
 import javax.ws.rs.ext.ExceptionMapper;
 import javax.ws.rs.ext.Provider;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 /**
- * Converts all application exceptions into structured JSON error responses.
+ * Catch-all exception mapper for any unhandled {@link Throwable}.
  *
- * Handles:
- *   ResourceNotFoundException  → 404 Not Found
- *   BadRequestException        → 400 Bad Request
- *   ResourceConflictException  → 409 Conflict
- *   Any other Throwable        → 500 Internal Server Error
+ * <p><strong>Security rationale — why we never expose stack traces to clients:</strong><br>
+ * Stack traces reveal (1) internal class names and package structure, helping
+ * attackers map the application; (2) library names and versions, enabling targeted
+ * CVE exploits; (3) file-system paths on the server; (4) database/query details if
+ * present; and (5) application logic flow, disclosing what conditions cause failures.
+ * An attacker can leverage this information to craft targeted exploits.<br><br>
+ * The fix: log the full stack trace server-side at SEVERE level so engineers can
+ * diagnose problems, and return only a generic message to the client.</p>
  */
 @Provider
 public class GlobalExceptionMapper implements ExceptionMapper<Throwable> {
 
+    private static final Logger LOG = Logger.getLogger(GlobalExceptionMapper.class.getName());
+
     @Override
     public Response toResponse(Throwable exception) {
+        // Log the full detail server-side only — never expose to the client
+        LOG.log(Level.SEVERE, "Unhandled exception caught by GlobalExceptionMapper", exception);
 
-        if (exception instanceof ResourceNotFoundException) {
-            return buildResponse(Response.Status.NOT_FOUND, exception.getMessage());
-        }
-
-        if (exception instanceof BadRequestException) {
-            return buildResponse(Response.Status.BAD_REQUEST, exception.getMessage());
-        }
-
-        if (exception instanceof ResourceConflictException) {
-            return buildResponse(Response.Status.CONFLICT, exception.getMessage());
-        }
-
-        // Fallback - 500 Internal Server Error
-        return buildResponse(
-                Response.Status.INTERNAL_SERVER_ERROR,
-                "An unexpected error occurred: " + exception.getMessage()
-        );
-    }
-
-    // ── Helper ────────────────────────────────────────────────────────────────
-
-    private Response buildResponse(Response.Status status, String message) {
-        ErrorResponse body = new ErrorResponse(
-                status.getStatusCode(),
-                status.getReasonPhrase(),
-                message
-        );
-        return Response.status(status)
-                       .entity(body)
-                       .type(MediaType.APPLICATION_JSON)
-                       .build();
+        return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
+                .entity(new ErrorResponse(
+                        500,
+                        "Internal Server Error",
+                        "An unexpected error occurred. Please contact the system administrator."))
+                .type(MediaType.APPLICATION_JSON)
+                .build();
     }
 }

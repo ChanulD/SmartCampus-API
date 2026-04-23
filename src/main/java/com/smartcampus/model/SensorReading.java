@@ -1,50 +1,73 @@
 package com.smartcampus.model;
 
-import com.fasterxml.jackson.annotation.JsonInclude;
-import java.time.Instant;
+import java.util.UUID;
 
 /**
- * Represents a single data reading produced by a sensor.
+ * Represents a single timestamped data reading captured by a sensor.
  *
- * value    – the raw measurement (e.g. 22.5 for °C)
- * unit     – measurement unit (e.g. "°C", "%", "lux")
- * recordedAt – ISO-8601 timestamp of when the reading was captured
+ * The {@code timestamp} field stores epoch milliseconds
+ * (compatible with {@link System#currentTimeMillis()}).
  */
-@JsonInclude(JsonInclude.Include.NON_NULL)
 public class SensorReading {
 
     private String id;
-    private String sensorId;
+    private long   timestamp;
     private double value;
-    private String unit;
-    private String recordedAt; // ISO-8601 string for simplicity (no DB layer)
 
     // ── Constructors ──────────────────────────────────────────────────────────
 
-    public SensorReading() {}
+    /** No-arg constructor required for JSON deserialisation. */
+    public SensorReading() {
+    }
 
-    public SensorReading(String id, String sensorId, double value, String unit) {
-        this.id         = id;
-        this.sensorId   = sensorId;
-        this.value      = value;
-        this.unit       = unit;
-        this.recordedAt = Instant.now().toString();
+    /**
+     * Convenience constructor that auto-generates a UUID id and captures
+     * the current system time as the timestamp.
+     *
+     * @param value the measurement value recorded by the sensor
+     */
+    public SensorReading(double value) {
+        this.id        = UUID.randomUUID().toString();
+        this.timestamp = System.currentTimeMillis();
+        this.value     = value;
+    }
+
+    /**
+     * Full constructor for explicitly supplying all fields.
+     *
+     * @param id        unique reading identifier (UUID string recommended)
+     * @param timestamp epoch milliseconds when the reading was captured
+     * @param value     the measurement value recorded by the sensor
+     */
+    public SensorReading(String id, long timestamp, double value) {
+        this.id        = id;
+        this.timestamp = timestamp;
+        this.value     = value;
     }
 
     // ── Getters & Setters ─────────────────────────────────────────────────────
 
-    public String getId()              { return id; }
-    public void   setId(String id)     { this.id = id; }
+    public String getId() {
+        return id;
+    }
 
-    public String getSensorId()                  { return sensorId; }
-    public void   setSensorId(String sensorId)   { this.sensorId = sensorId; }
+    public void setId(String id) {
+        this.id = id;
+    }
 
-    public double getValue()               { return value; }
-    public void   setValue(double value)   { this.value = value; }
+    public long getTimestamp() {
+        return timestamp;
+    }
 
-    public String getUnit()              { return unit; }
-    public void   setUnit(String unit)   { this.unit = unit; }
+    public void setTimestamp(long timestamp) {
+        this.timestamp = timestamp;
+    }
 
-    public String getRecordedAt()                    { return recordedAt; }
-    public void   setRecordedAt(String recordedAt)   { this.recordedAt = recordedAt; }
+    public double getValue() {
+        return value;
+    }
+
+    public void setValue(double value) {
+        this.value = value;
+    }
 }

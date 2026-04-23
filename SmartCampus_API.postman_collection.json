@@ -1,0 +1,259 @@
+{
+  "info": {
+    "name": "Smart Campus API",
+    "_postman_id": "smart-campus-api-v1",
+    "description": "Complete test sequence for the Smart Campus Sensor & Room Management API. Base URL: http://localhost:8080/api/v1",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:8080/api/v1" }
+  ],
+  "item": [
+    {
+      "name": "Part 1 — Discovery",
+      "item": [
+        {
+          "name": "1. GET /api/v1 (HATEOAS root)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}", "host": ["{{baseUrl}}"] }
+          },
+          "_demo": {
+            "expectedStatus": 200,
+            "highlight": "Show _links, version, contact — point out HATEOAS structure"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Part 2 — Room Management",
+      "item": [
+        {
+          "name": "2. GET /rooms (pre-seeded data)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/rooms", "host": ["{{baseUrl}}"], "path": ["rooms"] }
+          },
+          "_demo": {
+            "expectedStatus": 200,
+            "highlight": "Show LIB-301, LAB-102, HALL-01 pre-populated"
+          }
+        },
+        {
+          "name": "3. POST /rooms (create CONF-101)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"id\": \"CONF-101\",\n  \"name\": \"Conference Room\",\n  \"capacity\": 20\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/rooms", "host": ["{{baseUrl}}"], "path": ["rooms"] }
+          },
+          "_demo": {
+            "expectedStatus": 201,
+            "highlight": "Show Location header in response headers tab"
+          }
+        },
+        {
+          "name": "4. GET /rooms/CONF-101",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/rooms/CONF-101", "host": ["{{baseUrl}}"], "path": ["rooms","CONF-101"] }
+          },
+          "_demo": {
+            "expectedStatus": 200,
+            "highlight": "Show room details, sensorIds is empty list []"
+          }
+        },
+        {
+          "name": "5. DELETE /rooms/LIB-301 (409 — has sensors)",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/rooms/LIB-301", "host": ["{{baseUrl}}"], "path": ["rooms","LIB-301"] }
+          },
+          "_demo": {
+            "expectedStatus": 409,
+            "highlight": "Show JSON error — 'cannot be deleted, has 2 active sensor(s)'"
+          }
+        },
+        {
+          "name": "6. DELETE /rooms/CONF-101 (204 — empty room)",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/rooms/CONF-101", "host": ["{{baseUrl}}"], "path": ["rooms","CONF-101"] }
+          },
+          "_demo": {
+            "expectedStatus": 204,
+            "highlight": "Empty body — success. Re-run GET /rooms to confirm it is gone."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Part 3 — Sensor Operations",
+      "item": [
+        {
+          "name": "7. GET /sensors (all sensors)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/sensors", "host": ["{{baseUrl}}"], "path": ["sensors"] }
+          },
+          "_demo": {
+            "expectedStatus": 200,
+            "highlight": "Show TEMP-001, CO2-001, OCC-001 with their statuses"
+          }
+        },
+        {
+          "name": "8. GET /sensors?type=CO2 (filtered)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/sensors?type=CO2",
+              "host": ["{{baseUrl}}"],
+              "path": ["sensors"],
+              "query": [{ "key": "type", "value": "CO2" }]
+            }
+          },
+          "_demo": {
+            "expectedStatus": 200,
+            "highlight": "Only CO2-001 returned — demonstrate query param filtering"
+          }
+        },
+        {
+          "name": "9. POST /sensors (create TEMP-002)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"id\": \"TEMP-002\",\n  \"type\": \"Temperature\",\n  \"status\": \"ACTIVE\",\n  \"currentValue\": 0,\n  \"roomId\": \"LAB-102\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/sensors", "host": ["{{baseUrl}}"], "path": ["sensors"] }
+          },
+          "_demo": {
+            "expectedStatus": 201,
+            "highlight": "201 Created, Location header points to new sensor URL"
+          }
+        },
+        {
+          "name": "10. POST /sensors (422 — bad roomId)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"id\": \"BAD-001\",\n  \"type\": \"CO2\",\n  \"status\": \"ACTIVE\",\n  \"currentValue\": 0,\n  \"roomId\": \"NONEXISTENT\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/sensors", "host": ["{{baseUrl}}"], "path": ["sensors"] }
+          },
+          "_demo": {
+            "expectedStatus": 422,
+            "highlight": "422 Unprocessable Entity — room does not exist; explain 422 vs 404"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Part 4 — Sensor Readings",
+      "item": [
+        {
+          "name": "11. GET /sensors/TEMP-001/readings (history)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/sensors/TEMP-001/readings", "host": ["{{baseUrl}}"], "path": ["sensors","TEMP-001","readings"] }
+          },
+          "_demo": {
+            "expectedStatus": 200,
+            "highlight": "Show pre-seeded reading with value 22.5"
+          }
+        },
+        {
+          "name": "12. POST /sensors/TEMP-001/readings (add reading)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"value\": 24.3\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/sensors/TEMP-001/readings", "host": ["{{baseUrl}}"], "path": ["sensors","TEMP-001","readings"] }
+          },
+          "_demo": {
+            "expectedStatus": 201,
+            "highlight": "Show auto-generated UUID id and epoch timestamp in response"
+          }
+        },
+        {
+          "name": "13. GET /sensors/TEMP-001 (verify currentValue side-effect)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/sensors/TEMP-001", "host": ["{{baseUrl}}"], "path": ["sensors","TEMP-001"] }
+          },
+          "_demo": {
+            "expectedStatus": 200,
+            "highlight": "currentValue must now be 24.3 — show side-effect update worked"
+          }
+        },
+        {
+          "name": "14. POST /sensors/OCC-001/readings (403 — MAINTENANCE)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"value\": 5\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/sensors/OCC-001/readings", "host": ["{{baseUrl}}"], "path": ["sensors","OCC-001","readings"] }
+          },
+          "_demo": {
+            "expectedStatus": 403,
+            "highlight": "403 Forbidden — sensor is under MAINTENANCE; structured JSON error not HTML"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Part 5 — Error Handling",
+      "item": [
+        {
+          "name": "15. GET /rooms/FAKE-ROOM (404)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/rooms/FAKE-ROOM", "host": ["{{baseUrl}}"], "path": ["rooms","FAKE-ROOM"] }
+          },
+          "_demo": {
+            "expectedStatus": 404,
+            "highlight": "JSON error body — no HTML stack trace. Contrast with unhandled Tomcat 404."
+          }
+        },
+        {
+          "name": "16. POST /rooms (409 — duplicate LIB-301)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"id\": \"LIB-301\",\n  \"name\": \"Duplicate Room\",\n  \"capacity\": 10\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/rooms", "host": ["{{baseUrl}}"], "path": ["rooms"] }
+          },
+          "_demo": {
+            "expectedStatus": 409,
+            "highlight": "409 Conflict — id already exists, clean error message"
+          }
+        }
+      ]
+    }
+  ]
+}

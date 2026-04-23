@@ -7,20 +7,26 @@ import org.glassfish.jersey.server.ResourceConfig;
 /**
  * JAX-RS application entry point.
  *
- * Extends ResourceConfig (Jersey's enhanced Application) to enable:
- *   - Auto-scanning of all JAX-RS resources under com.smartcampus
- *   - Jackson JSON serialisation / deserialisation via JacksonFeature
+ * <p>Extends {@link ResourceConfig} (Jersey's enhanced Application subclass) to enable:
+ * <ul>
+ *   <li>Auto-scanning of all JAX-RS resources, providers, filters, and mappers
+ *       under the {@code com.smartcampus} package.</li>
+ *   <li>Jackson JSON serialisation / deserialisation via {@link JacksonFeature}.</li>
+ * </ul>
  *
- * All endpoints will be reachable at /api/v1/...
+ * <p>The in-memory {@code DataStore} is a plain singleton accessed via
+ * {@code DataStore.getInstance()} inside each resource — no HK2 binding required.</p>
+ *
+ * All endpoints are reachable at {@code /api/v1/...}
  */
 @ApplicationPath("/api/v1")
 public class SmartCampusApplication extends ResourceConfig {
 
     public SmartCampusApplication() {
-        // Auto-discover @Path, @Provider, @ExceptionMapper, etc. in the base package
+        // Auto-discover @Path, @Provider, @ExceptionMapper, @PreMatching, etc.
         packages("com.smartcampus");
 
-        // Enable Jackson for JSON marshalling
+        // Enable Jackson for JSON marshalling / unmarshalling
         register(JacksonFeature.class);
     }
 }

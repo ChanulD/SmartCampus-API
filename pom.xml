@@ -79,6 +79,35 @@
                 </configuration>
             </plugin>
 
+            <!-- Cargo plugin – run embedded Tomcat 9 with: mvn cargo:run -->
+            <plugin>
+                <groupId>org.codehaus.cargo</groupId>
+                <artifactId>cargo-maven3-plugin</artifactId>
+                <version>1.10.9</version>
+                <configuration>
+                    <container>
+                        <containerId>tomcat9x</containerId>
+                        <type>embedded</type>
+                    </container>
+                    <configuration>
+                        <properties>
+                            <cargo.servlet.port>8080</cargo.servlet.port>
+                        </properties>
+                    </configuration>
+                    <!-- Deploy WAR at root context → http://localhost:8080/api/v1/... -->
+                    <deployables>
+                        <deployable>
+                            <groupId>com.smartcampus</groupId>
+                            <artifactId>smart-campus-api</artifactId>
+                            <type>war</type>
+                            <properties>
+                                <context>/</context>
+                            </properties>
+                        </deployable>
+                    </deployables>
+                </configuration>
+            </plugin>
+
         </plugins>
     </build>
 

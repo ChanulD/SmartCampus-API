@@ -1,40 +1,77 @@
 package com.smartcampus.model;
 
-import com.fasterxml.jackson.annotation.JsonInclude;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
- * Represents a campus room that contains one or more sensors.
+ * Represents a physical room in the Smart Campus.
+ * A room may contain zero or more sensors, tracked by their IDs.
  */
-@JsonInclude(JsonInclude.Include.NON_NULL)
 public class Room {
 
-    private String id;
-    private String name;
-    private String building;
-    private int    floor;
+    private String       id;
+    private String       name;
+    private int          capacity;
+    private List<String> sensorIds;
 
-    // ── Constructors ─────────────────────────────────────────────────────────
+    // ── Constructors ──────────────────────────────────────────────────────────
 
-    public Room() {}
+    /** No-arg constructor required for JSON deserialisation. */
+    public Room() {
+        this.sensorIds = new ArrayList<>();
+    }
 
-    public Room(String id, String name, String building, int floor) {
-        this.id       = id;
-        this.name     = name;
-        this.building = building;
-        this.floor    = floor;
+    /**
+     * Convenience constructor for creating a room without pre-assigned sensors.
+     *
+     * @param id       unique room identifier
+     * @param name     human-readable room name
+     * @param capacity maximum occupancy of the room
+     */
+    public Room(String id, String name, int capacity) {
+        this.id        = id;
+        this.name      = name;
+        this.capacity  = capacity;
+        this.sensorIds = new ArrayList<>();
     }
 
     // ── Getters & Setters ─────────────────────────────────────────────────────
 
-    public String getId()                  { return id; }
-    public void   setId(String id)         { this.id = id; }
+    public String getId() {
+        return id;
+    }
 
-    public String getName()                { return name; }
-    public void   setName(String name)     { this.name = name; }
+    public void setId(String id) {
+        this.id = id;
+    }
 
-    public String getBuilding()                    { return building; }
-    public void   setBuilding(String building)     { this.building = building; }
+    public String getName() {
+        return name;
+    }
 
-    public int  getFloor()             { return floor; }
-    public void setFloor(int floor)    { this.floor = floor; }
+    public void setName(String name) {
+        this.name = name;
+    }
+
+    public int getCapacity() {
+        return capacity;
+    }
+
+    public void setCapacity(int capacity) {
+        this.capacity = capacity;
+    }
+
+    public List<String> getSensorIds() {
+        return sensorIds;
+    }
+
+    /**
+     * Sets the list of sensor IDs for this room.
+     * Guards against null: if {@code null} is passed, an empty list is used instead.
+     *
+     * @param sensorIds list of sensor ID strings, or null
+     */
+    public void setSensorIds(List<String> sensorIds) {
+        this.sensorIds = (sensorIds != null) ? sensorIds : new ArrayList<>();
+    }
 }

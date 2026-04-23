@@ -1,102 +1,85 @@
 package com.smartcampus.resource;
 
-import com.smartcampus.exception.BadRequestException;
-import com.smartcampus.exception.ResourceNotFoundException;
+import com.smartcampus.exception.SensorUnavailableException;
+import com.smartcampus.model.ErrorResponse;
+import com.smartcampus.model.Sensor;
 import com.smartcampus.model.SensorReading;
-import com.smartcampus.store.SensorReadingStore;
-import com.smartcampus.store.SensorStore;
+import com.smartcampus.store.DataStore;
 
-import javax.inject.Inject;
 import javax.ws.rs.*;
 import javax.ws.rs.core.*;
-import java.net.URI;
 import java.util.List;
+import java.util.UUID;
 
 /**
- * REST resource for sensor readings.
+ * Sub-resource class for sensor reading history.
  *
- * Nested under sensor: /api/v1/sensors/{sensorId}/readings
+ * <p>This class has NO class-level {@code @Path} annotation. Its path is determined
+ * entirely by the locator method in {@link SensorResource} that returns it
+ * ({@code @Path("/{sensorId}/readings")}). Adding {@code @Path} here would cause
+ * double-path registration and a 404 on every request — a common sub-resource bug.</p>
  *
- * GET    /sensors/{sensorId}/readings           - list readings for a sensor
- * GET    /sensors/{sensorId}/readings/{id}      - get a single reading
- * POST   /sensors/{sensorId}/readings           - record a new reading
- * DELETE /sensors/{sensorId}/readings/{id}      - delete a reading
+ * Effective paths:
+ *   GET  /sensors/{sensorId}/readings      – list reading history (200 / 404)
+ *   POST /sensors/{sensorId}/readings      – add a new reading    (201 / 403 / 404)
  */
-@Path("/sensors/{sensorId}/readings")
 @Produces(MediaType.APPLICATION_JSON)
 @Consumes(MediaType.APPLICATION_JSON)
 public class SensorReadingResource {
 
-    @Inject
-    private SensorReadingStore readingStore;
+    private final String    sensorId;
+    private final DataStore store;
 
-    @Inject
-    private SensorStore sensorStore;
-
-    @Context
-    private UriInfo uriInfo;
+    public SensorReadingResource(String sensorId) {
+        this.sensorId = sensorId;
+        this.store    = DataStore.getInstance();
+    }
 
     // ── GET /sensors/{sensorId}/readings ──────────────────────────────────────
 
     @GET
-    public List<SensorReading> getReadingsForSensor(@PathParam("sensorId") String sensorId) {
-        verifySensorExists(sensorId);
-        return readingStore.findBySensorId(sensorId);
-    }
-
-    // ── GET /sensors/{sensorId}/readings/{id} ─────────────────────────────────
-
-    @GET
-    @Path("/{id}")
-    public SensorReading getReadingById(@PathParam("sensorId") String sensorId,
-                                        @PathParam("id")       String id) {
-        verifySensorExists(sensorId);
-        SensorReading reading = readingStore.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("SensorReading", id));
-        // Guard: ensure the reading belongs to the sensor in the URL
-        if (!sensorId.equals(reading.getSensorId())) {
-            throw new ResourceNotFoundException("SensorReading", id);
+    public Response getReadings() {
+        if (store.getSensor(sensorId) == null) {
+            return Response.status(Response.Status.NOT_FOUND)
+                    .entity(new ErrorResponse(404, "Not Found",
+                            "Sensor with id '" + sensorId + "' was not found."))
+                    .build();
         }
-        return reading;
+        List<SensorReading> readings = store.getReadingsForSensor(sensorId);
+        return Response.ok(readings).build();
     }
 
     // ── POST /sensors/{sensorId}/readings ─────────────────────────────────────
 
     @POST
-    public Response addReading(@PathParam("sensorId") String sensorId,
-                               SensorReading reading) {
-        verifySensorExists(sensorId);
-        if (reading == null) {
-            throw new BadRequestException("Request body must not be empty.");
+    public Response addReading(SensorReading reading) {
+        // Verify sensor exists
+        Sensor sensor = store.getSensor(sensorId);
+        if (sensor == null) {
+            return Response.status(Response.Status.NOT_FOUND)
+                    .entity(new ErrorResponse(404, "Not Found",
+                            "Sensor with id '" + sensorId + "' was not found."))
+                    .build();
         }
-        // Force sensorId from URL path (ignore any body value)
-        reading.setSensorId(sensorId);
-
-        SensorReading created = readingStore.add(reading);
-        URI location = uriInfo.getAbsolutePathBuilder()
-                              .path(created.getId())
-                              .build();
-        return Response.created(location).entity(created).build();
-    }
-
-    // ── DELETE /sensors/{sensorId}/readings/{id} ──────────────────────────────
-
-    @DELETE
-    @Path("/{id}")
-    public Response deleteReading(@PathParam("sensorId") String sensorId,
-                                  @PathParam("id")       String id) {
-        verifySensorExists(sensorId);
-        if (!readingStore.delete(id)) {
-            throw new ResourceNotFoundException("SensorReading", id);
+        // Issue 3 fix: check ONLY for MAINTENANCE, not OFFLINE
+        if ("MAINTENANCE".equalsIgnoreCase(sensor.getStatus())) {
+            throw new SensorUnavailableException(
+                    "Sensor '" + sensorId + "' is under MAINTENANCE and cannot accept new readings.");
         }
-        return Response.noContent().build();
-    }
-
-    // ── Helper ────────────────────────────────────────────────────────────────
-
-    private void verifySensorExists(String sensorId) {
-        if (!sensorStore.exists(sensorId)) {
-            throw new ResourceNotFoundException("Sensor", sensorId);
+        // Issue 2 fix: auto-generate id/timestamp — never mutate via getReadingsForSensor()
+        if (reading.getId() == null || reading.getId().isBlank()) {
+            reading.setId(UUID.randomUUID().toString());
         }
+        if (reading.getTimestamp() == 0) {
+            reading.setTimestamp(System.currentTimeMillis());
+        }
+
+        // Persist via DataStore (thread-safe computeIfAbsent path)
+        store.addReading(sensorId, reading);
+
+        // Side effect: update the sensor's currentValue to the latest reading
+        sensor.setCurrentValue(reading.getValue());
+
+        return Response.status(Response.Status.CREATED).entity(reading).build();
     }
 }
