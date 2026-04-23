@@ -186,78 +186,73 @@ All errors return a consistent JSON body — **no HTML stack traces are ever exp
 
 ## Part 1 — Service Architecture & Setup
 ## Q1 — JAX-RS Resource Lifecycle & Thread Safety
-By default, JAX-RS creates a new instance of every resource class for each incoming HTTP request (per-request scope). This means the JAX-RS runtime does not treat resource classes as singletons a fresh object is instantiated for every call and then discarded. 
-Because a new instance is created per request, any instance-level fields are reset on every invocation. Storing shared data in an instance field would mean that data is lost after each request completes. To persist and share state across requests, an external singleton is required. This project uses DataStore a statically, eagerly-initialized singleton for that purpose. 
-Since multiple threads may handle concurrent requests simultaneously, all maps in DataStore use ConcurrentHashMap. This provides atomic, thread-safe get, put, and remove operations without requiring explicit synchronized blocks, thereby preventing race conditions such as two concurrent POST requests both inserting the same sensor ID and corrupting the collection.
+The JAX-RS specification defines a per-request lifecycle as the default behaviour for resource classes. Rather than reusing a shared instance across calls, the runtime constructs a brand-new object for every HTTP request that arrives and disposes of it once the response has been sent. 
+This has a direct consequence for state management: any field declared on the resource class is re-initialised with each new object, so it cannot hold data between requests. To maintain shared, persistent application state, the data must live outside the resource class entirely. In this project that responsibility belongs to DataStore, a static singleton that is initialised once when the application starts and remains alive for its entire lifetime. 
+Concurrent HTTP requests are handled on separate threads, which means multiple threads can access DataStore simultaneously. To guard against race conditions for instance, two simultaneous POST requests attempting to register the same sensor ID all internal maps use ConcurrentHashMap. Its built-in atomic operations for reads, writes, and deletions eliminate the need for manual synchronized blocks while still guaranteeing thread-safe access.
 
 ## Q2 — Why HATEOAS Is a Hallmark of Advanced RESTful Design
-HATEOAS (Hypermedia as the Engine of Application State) means the server embeds hyperlinks inside every response, pointing to related resources and valid next actions. For example, the discovery endpoint at /api/v1 returns "_links": { "rooms": "/api/v1/rooms", "sensors": "/api/v1/sensors" }.
-Key benefits over static documentation:
-•	Single entry point: A client only needs to know the base URL. It can navigate the entire API dynamically by following links in responses, rather than memorizing every endpoint from external docs. 
-•	Decoupling: If server-side URL structures change, only the embedded links in responses need updating. Clients that follow links rather than hard-coding paths are unaffected by URL changes. 
-•	Self-documenting runtime behavior: The set of links present in a response indicates exactly which actions are currently valid for that resource state, reducing the chance of clients attempting invalid operations. 
-•	Always up-to-date: Static documentation goes stale. Hypermedia links are generated live from the server and always reflect the current API structure.
-
+HATEOAS Hypermedia as the Engine of Application State is the principle that every API response should carry navigational links describing what the client can do next, rather than leaving clients to rely on out-of-band documentation. In this project the root discovery endpoint at /api/v1 illustrates this directly: its response includes a links object mapping resource names such as rooms and sensors to their respective collection URLs. 
+This approach offers several concrete advantages over static documentation: 
+•	Single known entry point: Consumers only need to bookmark the base URL. Every subsequent action can be discovered at runtime by reading the links embedded in each response, removing the need to memorize or hard-code individual paths. 
+•	Resilience to URL changes: When the server-side routing is restructured, only the generated link values in responses need updating. Clients that navigate by following links — rather than constructing URLs manually — are completely insulated from such changes. 
+•	Runtime discoverability: The links returned alongside a resource communicate precisely which operations are valid at that moment in time, giving developers an accurate, live picture of the API's capabilities rather than a potentially outdated spec.
+•	Documentation that cannot go stale: Unlike a written specification, hypermedia links are produced directly by the running server, so they always reflect the true current state of the API. 
 
 ## Part 2 — Room Management
 ## Q1 — IDs Only vs Full Objects in List Responses
-When returning a collection of rooms, two common approaches exist: 
-Returning only IDs (e.g., ["LIB-301", "LAB-102", "HALL-01"]): Very low bandwidth, but forces clients to make N additional GET requests to retrieve details for each room. For a list of 100 rooms this means 100 extra HTTP round-trips, adding significant latency and additional server load. 
-Returning full objects (chosen approach): Slightly larger payload, but the client receives everything it needs in a single round-trip. For typical campus management dashboards that immediately display room names, capacities, and sensor counts, this eliminates redundant follow-up requests. For this API's expected usage patterns and collection sizes, full objects provide a significantly better developer experience with minimal bandwidth cost.
+There are two common strategies for representing a collection in an API response, each with different trade-offs in terms of network efficiency and client complexity: 
+ID-only responses (e.g., ["LIB-301", "LAB-102", "HALL-01"]) keep the initial payload small, but every consumer that needs room details must then fire a separate GET request per room. At scale say, a dashboard listing 100 rooms this produces 100 additional HTTP calls, substantially increasing both round-trip latency and server CPU load. 
+Full-object responses (the approach taken here) transfer a slightly larger payload upfront but allow the client to render a complete view name, capacity, sensor count from a single request. Given the typical usage patterns of a campus facilities dashboard and the realistic sizes of these collections, the marginal bandwidth cost is far outweighed by the improvement in responsiveness and simplicity of the client code.
 
 ## Q2 — Is DELETE Idempotent?
-Yes, in terms of server state — though the HTTP response codes differ between calls. REST defines idempotency as: making the same request multiple times produces the same resulting server state. 
-In this implementation, a first DELETE /api/v1/rooms/HALL-01 (assuming the room has no sensors) removes the room and returns 204 No Content. A second identical request finds the room already gone and returns 404 Not Found. The server state is identical after both calls — the room is absent — satisfying the idempotency requirement. The differing status codes (204 vs 404) are acceptable and widely considered correct REST behaviour: a 404 on a repeated DELETE communicates "the resource you wanted gone is indeed gone."
-
-
-
-
+From a server-state perspective, yes DELETE is idempotent in this implementation, even though the HTTP status code changes between the first and subsequent calls. Idempotency in REST means that repeating the same operation any number of times leaves the system in the same final state. 
+Consider issuing DELETE /api/v1/rooms/HALL-01 twice, assuming the room carries no sensors on the first attempt. The initial call successfully removes the room and responds with 204 No Content. The follow-up call targets a room that no longer exists, so the server replies with 404 Not Found. In both cases the outcome is the same: HALL-01 is absent from the system. The 404 is not a sign that idempotency has broken down it simply confirms to the client that the resource they wanted removed is, in fact, gone. This is widely regarded as correct and expected REST behaviour.
 
 
 ## Part 3 — Sensor Operations & Linking
 ## Q1 — Consequences of @Consumes(APPLICATION_JSON) Mismatch
-The @Consumes(MediaType.APPLICATION_JSON) annotation instructs the JAX-RS runtime to only accept requests whose Content-Type header is application/json. If a client sends Content-Type: text/plain or Content-Type: application/xml, Jersey responds immediately with HTTP 415 Unsupported Media Type before the resource method is even invoked  no custom code is required. 
-This provides a strong content-type contract enforced entirely at the framework level: malformed or wrongly-typed requests are rejected automatically, protecting the resource method from receiving data that Jackson cannot deserialise into the target POJO.
+Annotating a POST method with @Consumes(MediaType.APPLICATION_JSON) instructs the JAX-RS framework to only route the request to that method when the client's Content-Type header declares application/json. Should a client instead submit the request with a header such as text/plain or application/xml, Jersey intercepts the mismatch before the method body is ever executed and immediately returns HTTP 415 Unsupported Media Type. 
+This framework-level enforcement acts as an early gate: incorrectly typed payloads are rejected before they reach the Jackson deserialiser, ensuring that the resource method only ever receives data that can be safely mapped to the target POJO. No custom validation code is needed to handle this scenario.
 
 ## Q2 — @QueryParam vs Path Segment for Filtering
 Design	Example	Semantics
 Query Parameter	/api/v1/sensors?type=CO2	Filters a collection
 Path Segment	/api/v1/sensors/type/CO2	Implies CO2 is a uniquely addressable resource
 
-Query parameters are semantically correct for filtering because they narrow down a collection rather than address a distinct resource. A path like /sensors/type/CO2 incorrectly implies there is a stable, individually addressable resource at that URL — which is not the case, as CO2 is a filter criterion, not a resource identifier. 
-Additionally, query parameters are naturally optional: omitting ?type= returns the full list with no code changes. Multiple filters can be combined (e.g., ?type=CO2&status=ACTIVE) without complicating the URL path structure. This is the standard REST convention for search and filter operations as established by RFC 3986, and is universally understood by client developers.
+Query parameters are the semantically appropriate tool for filtering because they express a constraint applied to a collection, rather than identifying a specific resource. A URL such as /sensors/type/CO2 carries the unintended implication that CO2 is itself a distinct, bookmarkable resource which is misleading, since it is merely a filtering criterion. 
+Query parameters also compose naturally: they are optional by design (omitting ?type= simply returns the full unfiltered collection), and multiple criteria can be layered together (e.g., ?type=CO2&status=ACTIVE) without restructuring the URL path. This pattern aligns with RFC 3986's intended use of the query component and matches the expectations of practically every HTTP client developer.
 
 
 
 ## Part 4 — Deep Nesting with Sub-Resources
 ## Q1 — Architectural Benefits of the Sub-Resource Locator Pattern
-The Sub-Resource Locator pattern allows SensorResource to delegate all processing for /{sensorId}/readings to a dedicated SensorReadingResource class by returning an instance of it from a method annotated only with @Path (no HTTP method annotation). Benefits include:
-1.	Separation of concerns: Each class has a single responsibility. SensorResource handles sensor CRUD; SensorReadingResource handles reading history. Neither class needs to know about the other's internal logic.
-2.	Reduced class size and complexity: A monolithic resource handling every nested endpoint would grow to hundreds of lines, making it hard to read, test, and maintain. Delegation keeps each file focused.
-3.	Contextual instantiation: SensorReadingResource receives sensorId as a constructor argument, allowing all its methods to contextualise their logic without parsing path parameters themselves.
-4.	Scalability: Adding new nested sub-resources (e.g., /sensors/{id}/alerts) requires only a new class and one additional locator method  existing classes are untouched, respecting the Open/Closed Principle.
+A sub-resource locator is a method annotated solely with @Path carrying no HTTP verb annotation that returns an instance of another class. In this project, SensorResource uses this mechanism to hand off all requests under /{sensorId}/readings to a dedicated SensorReadingResource. The benefits of this delegation are significant: 
+1.	Single responsibility: Each class owns one well-defined slice of the API. SensorResource is concerned exclusively with sensor lifecycle operations; SensorReadingResource focuses entirely on reading history. Neither bleeds into the other's domain. 
+2.	Manageable file size: Placing every nested route inside one class would produce a bloated, hard-to-navigate controller. Distributing logic across focused classes keeps each file short and straightforward to unit-test. 
+3.	Implicit context passing: SensorReadingResource accepts sensorId through its constructor, so every method in that class automatically has the relevant context without needing to re-extract it from the path on each call. 
+4.	Extensibility: Introducing an additional nested resource such as /sensors/{id}/alerts means writing one new class and adding a single locator method. All existing code stays unchanged, which is a direct application of the Open/Closed Principle.
+
 
 ## Part 5 — Advanced Error Handling, Exception Mapping & Logging
 ## Q1 — Why HTTP 422 Over 404 for a Missing Reference in a JSON Payload
-•	404 Not Found signals that the requested URL resource does not exist. It applies when the path itself is invalid.
-•	422 Unprocessable Entity signals that the request was syntactically valid JSON, correctly formed, and targeted a valid URL — but contains a semantic error inside the payload.
-When a client POSTs { "roomId": "HELLO-001" } to /api/v1/sensors, the URL /api/v1/sensors is perfectly valid (404 does not apply). The JSON parses correctly (400 does not apply). The problem is the value of roomId — it references a room that does not exist. HTTP 422 precisely communicates "I understood and parsed your request, but I cannot process it because the content is semantically invalid." This gives API consumers a clear, unambiguous signal to fix the payload value, not the URL structure.
-
-
+Choosing the right status code hinges on precisely what went wrong in the request: 
+•	404 Not Found is the appropriate response when the URL itself does not correspond to any known resource the path is unrecognised. 
+•	422 Unprocessable Entity applies when the URL is valid, the JSON is well-formed, but the semantic content of the payload cannot be acted upon. 
+When a client POSTs { "roomId": "GHOST-99" } to /api/v1/sensors, the endpoint exists and the JSON parses without error, so neither 404 nor 400 applies. The issue is that the supplied roomId value references an entity that is not present in the system. Returning 422 tells the consumer exactly what happened: "your request was structurally correct, but the data inside it refers to something that doesn't exist please fix the value, not the URL." This precision makes debugging far quicker for API clients.
 
 ## Q2 — Cybersecurity Risks of Exposing Java Stack Traces
-Exposing raw Java stack traces to external API consumers reveals information that can be exploited:
-1.	Internal package structure: Class names like com.smartcampus.store.DataStore expose the exact package layout, helping attackers understand the codebase and craft targeted exploits.
-2.	Framework and library versions: Stack traces often include library identifiers (e.g., jersey-server-2.40). Attackers can search CVE databases for known vulnerabilities in those exact versions.
-3.	Business logic flow: The call stack reveals which methods were invoked in what order, exposing internal processing logic that should remain opaque to external users.
-4.	File and line numbers: These reveal the codebase structure and can help attackers identify specific vulnerable lines to target.
-5.	Data layer details: If an ORM or query layer is involved, stack traces can expose table names, column names, or connection details.
-The GlobalExceptionMapper<Throwable> mitigates all of these risks by logging the full stack trace server-side only (for developers) while returning a generic "An unexpected error occurred" message to the client — leaking nothing about the internal system.
+Allowing raw stack traces to reach external consumers is a significant security mistake, as they hand attackers a detailed map of the application's internals: 
+•	Package and class names: Fully qualified names like com.smartcampus.store.DataStore reveal the project's internal structure, making it easier to reason about the attack surface. 
+•	Dependency fingerprinting: Stack frames typically include third-party library names and versions (e.g., jersey-server-2.40), which an attacker can cross-reference against known CVE databases to find exploitable vulnerabilities. 
+•	Execution flow disclosure: The sequence of method calls in a trace exposes the internal control flow of the application — logic that should be entirely opaque to outside parties. 
+•	Source file and line references: These can help an attacker narrow down exactly which lines of code are responsible for handling sensitive operations. 
+•	Persistence layer hints: When a database or ORM layer is in use, traces may inadvertently reveal table names, column identifiers, or connection-string fragments. 
+The GlobalExceptionMapper addresses all of these concerns in one place: the complete stack trace is written to the server log for developer visibility, while the external caller receives only a generic 500 Internal Server Error message with no internal details.
 
 ## Q3 — Why Use JAX-RS Filters Instead of Manual Logging in Every Method
-JAX-RS filters (ContainerRequestFilter / ContainerResponseFilter) apply automatically to every single request and response without any modification to existing resource methods. The alternative — manually inserting Logger.info() into each endpoint — has serious disadvantages:
-1.	DRY violation: Logging code is duplicated across every resource method. Any change (log format, correlation ID, log level) requires editing every file.
-2.	Human error: A developer writing a new endpoint can simply forget to add the logging statement, creating silent gaps in observability.
-3.	Separation of concerns: Logging is a cross-cutting infrastructure concern and does not belong mixed with business domain logic.
-4.	Guaranteed coverage: Filters are invoked by the JAX-RS framework regardless of which endpoint is called or which exception path is taken — no code path is silently missed.
-5.	Easy extension: Adding rate-limit tracking, authentication checks, or a request correlation ID to every call requires changing only the single filter class, not every resource method throughout the codebase.
+Placing Logger.info() calls manually inside every resource method is a workable but fragile approach. JAX-RS filters specifically ContainerRequestFilter and ContainerResponseFilter offer a structurally superior alternative for the following reasons: 
+• Avoids code duplication: A single filter class covers the entire API. With manual logging, the same boilerplate must be 1.reproduced in every method, and any update to the log format means editing every one of those locations. 
+• Reduces human error: When a developer adds a new endpoint, it is easy to forget to include a logging call. A filter provides coverage automatically, with no action required from the developer. 
+• Preserves clean architecture: Logging is infrastructure, not business logic. Mixing the two inside a resource method makes the code harder to read and test. Filters enforce a clean boundary between the two concerns. 
+• Complete and reliable coverage: The JAX-RS framework guarantees that registered filters run on every request and response, including paths that end in exceptions. Manual logging silently misses error paths unless the developer explicitly handles them. 
+• Centralised evolution: Enriching the logs with a correlation ID, authentication token, or timing metric requires a single change in one file not a refactor spanning every resource class in the project.
