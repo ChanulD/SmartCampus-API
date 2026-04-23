@@ -7,16 +7,19 @@
 
     <display-name>Smart Campus API</display-name>
 
-    <!-- Jersey Servlet - delegates to SmartCampusApplication (ResourceConfig) -->
-    <servlet>
-        <servlet-name>SmartCampusServlet</servlet-name>
-        <servlet-class>com.smartcampus.SmartCampusApplication</servlet-class>
-        <load-on-startup>1</load-on-startup>
-    </servlet>
+    <!--
+        No explicit servlet registration needed.
 
-    <servlet-mapping>
-        <servlet-name>SmartCampusServlet</servlet-name>
-        <url-pattern>/*</url-pattern>
-    </servlet-mapping>
+        Jersey's ServletContainerInitializer (in jersey-container-servlet.jar)
+        implements the Servlet 3.0 javax.servlet.ServletContainerInitializer SPI.
+        On startup, Tomcat calls it, it scans for classes annotated with
+        @ApplicationPath, finds SmartCampusApplication, and auto-registers
+        org.glassfish.jersey.servlet.ServletContainer mapped to /api/v1/*.
+
+        Benefits of this approach:
+          - No ClassCastException (ResourceConfig is not cast to Servlet)
+          - No path-mapping conflicts between url-pattern and @ApplicationPath
+          - Single source of truth for the base path: @ApplicationPath("/api/v1")
+    -->
 
 </web-app>
